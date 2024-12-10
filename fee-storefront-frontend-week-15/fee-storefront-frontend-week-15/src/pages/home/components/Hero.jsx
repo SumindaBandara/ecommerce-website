@@ -3,17 +3,16 @@ import { createCategory } from "../../../services/api/product";
 function Hero() {
   return (
     <section className="py-8 px-16">
-      <div className="grid grid-cols-2 rounded-md min-h-[60vh] bg-[#f4f8f9]">
+      <div className="grid grid-cols-2 rounded-md min-h-[60vh] bg-[#f2edf2]">
         <div className="flex flex-col justify-center p-16 gap-y-4">
           <span className="block rounded-full px-2 py-1 text-xs  w-fit bg-[#febc26]">
             WEEKLY DISCOUNT
           </span>
           <h1 className="text-6xl font-semibold">
-            Premium Product Online Shop
+          Elite Online Marketplace for Premium Items
           </h1>
           <p>
-            Lorem ipsum dolor sit amet consectetur adipisicing elit. Eius quos
-            suscipit est autem quia? Voluptatem?
+          Elevate Your Digital Lifestyle with Our Premium Accessories. Explore our range today and elevate your tech setup
           </p>
           <a
             to="/shop"
@@ -27,7 +26,7 @@ function Hero() {
         </div>
         <div className=" relative">
           <img
-            src="https://fee-storefront.vercel.app/assets/hero/hero.jpg"
+            src="/public/assets/hero/hi3.png"
             alt=""
             className="w-full h-full object-cover"
           />

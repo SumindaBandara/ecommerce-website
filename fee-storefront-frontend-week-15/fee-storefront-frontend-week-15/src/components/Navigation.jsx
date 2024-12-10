@@ -13,7 +13,7 @@ function Navigation(props) {
     <nav className="flex items-center justify-between py-8 px-16">
       <div className="flex items-center gap-x-16">
         <Link className="font-semibold text-3xl" to="/">
-          Mebius
+        TechZone
         </Link>
         <div className="flex items-center gap-x-4">
           <Link to="/">Home</Link>
