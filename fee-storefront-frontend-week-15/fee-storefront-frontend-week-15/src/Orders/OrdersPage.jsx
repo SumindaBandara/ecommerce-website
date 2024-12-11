@@ -1,52 +1,78 @@
 import React, { useEffect, useState } from "react";
+import { ErrorBoundary } from "react-error-boundary";
 import { useUser } from "@clerk/clerk-react";
 import { getOrdersByUser } from "../services/api/orders";
 import { toast } from "sonner";
+import { 
+  CheckCircleIcon, 
+  PackageIcon, 
+  ClockIcon,
+  AlertTriangleIcon,
+  RefreshCwIcon
+} from "lucide-react";
+import Footer from "../pages/home/components/Footer";
 
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
-    toast.error("An unexpected error occurred");
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="error-boundary p-8 bg-red-50 text-red-800 rounded-lg">
-          <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
-          <p>Please try refreshing the page or contact support.</p>
-          {this.state.error && (
-            <details className="mt-4">
-              <summary>Error Details</summary>
-              <pre className="bg-red-100 p-4 rounded mt-2">
-                {this.state.error.toString()}
-              </pre>
-            </details>
-          )}
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
+// Error Fallback Component
+function ErrorFallback({ error, resetErrorBoundary }) {
+  return (
+    <div className="error-boundary p-8 bg-red-50 text-red-800 rounded-lg max-w-md mx-auto mt-10">
+      <div className="flex items-center mb-4">
+        <AlertTriangleIcon className="w-8 h-8 mr-3 text-red-600" />
+        <h1 className="text-2xl font-bold">Something went wrong</h1>
+      </div>
+      <p className="mb-4">We encountered an unexpected error while loading your orders.</p>
+      <details className="mb-4">
+        <summary>Error Details</summary>
+        <pre className="bg-red-100 p-4 rounded mt-2 text-sm overflow-auto">
+          {error.toString()}
+        </pre>
+      </details>
+      <div className="flex space-x-4">
+        <button 
+          onClick={resetErrorBoundary} 
+          className="flex items-center bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+        >
+          <RefreshCwIcon className="mr-2 w-4 h-4" />
+          Try Again
+        </button>
+        <button 
+          onClick={() => window.location.reload()}
+          className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 transition"
+        >
+          Reload Page
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function OrdersPage() {
   const { user, isLoaded, isSignedIn } = useUser();
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+
+  const fetchOrders = async () => {
+    if (!isLoaded || !isSignedIn || !user?.id) {
+      throw new Error("User not identified");
+    }
+
+    setIsLoading(true);
+
+    try {
+      const fetchedOrders = await getOrdersByUser(user.id);
+      const ordersArray = Array.isArray(fetchedOrders) 
+        ? fetchedOrders 
+        : (fetchedOrders.orders || []);
+      
+      setOrders(ordersArray);
+    } catch (error) {
+      console.error("Orders fetch error:", error);
+      toast.error(error.response?.data?.message || error.message || "Failed to load orders");
+      throw error; // Rethrow to be caught by error boundary
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (isLoaded && isSignedIn) {
@@ -54,171 +80,211 @@ function OrdersPage() {
     }
   }, [isLoaded, isSignedIn, user]);
 
-  const fetchOrders = async () => {
-    // Reset error states
-    setIsError(false);
-    setErrorMessage("");
-
-    // Validate user and user ID
-    if (!user || !user.id) {
-      setIsError(true);
-      setErrorMessage("User information is not available");
-      setIsLoading(false);
-      toast.error("User not identified");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const fetchedOrders = await getOrdersByUser(user.id);
-      
-      // Defensive programming: ensure fetchedOrders is an array
-      const ordersArray = Array.isArray(fetchedOrders) 
-        ? fetchedOrders 
-        : (fetchedOrders.orders || []);
-      
-      console.log('Fetched Orders:', ordersArray);
-      
-      setOrders(ordersArray);
-    } catch (error) {
-      console.error("Orders fetch error:", error);
-      setIsError(true);
-      
-      // More specific error handling
-      const errorMsg = error.response?.data?.message 
-        || error.message 
-        || "Failed to load orders";
-      
-      setErrorMessage(errorMsg);
-      toast.error(errorMsg);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const calculateOrderTotal = (order) => {
-    // Ensure orderProducts is an array and handle potential nested product structure
     const products = Array.isArray(order.orderProducts) ? order.orderProducts : [];
-    
-    return products.reduce((total, product) => {
+    const total = products.reduce((total, product) => {
       const price = product.productId?.price || product.price || 0;
       const quantity = product.quantity || 1;
-      return total + (quantity * price);
-    }, 0).toFixed(2);
+
+      const safePrice = Number(price);
+      const safeQuantity = Number(quantity);
+
+      if (isNaN(safePrice) || isNaN(safeQuantity)) {
+        console.warn('Invalid price or quantity detected:', { price, quantity, product });
+        return total;
+      }
+
+      return total + safePrice * safeQuantity;
+    }, 0);
+
+    return Number(total).toFixed(2);
   };
 
-  // Loading state
+  const getOrderStatusIcon = (status) => {
+    switch(status) {
+      case 'Paid':
+        return <CheckCircleIcon className="text-green-500 w-6 h-6" />;
+      case 'Pending':
+        return <ClockIcon className="text-yellow-500 w-6 h-6" />;
+      case 'Processing':
+        return <PackageIcon className="text-blue-500 w-6 h-6" />;
+      default:
+        return null;
+    }
+  };
+
   if (!isLoaded) {
-    return <div className="text-center py-8">Loading user information...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-pulse text-gray-500">
+          Loading user information...
+        </div>
+      </div>
+    );
   }
 
-  // Authentication check
   if (!isSignedIn) {
     return (
-      <div className="text-center py-8">
-        <p>Please sign in to view your orders.</p>
+      <div className="flex justify-center items-center h-screen text-center">
+        <p className="text-gray-600 text-xl">Please sign in to view your orders.</p>
       </div>
     );
   }
 
-  // Error state
-  if (isError) {
-    return (
-      <div className="text-center py-8 bg-red-50 text-red-800">
-        <h2 className="text-2xl font-semibold mb-4">Error Loading Orders</h2>
-        <p>{errorMessage || "Unable to retrieve orders. Please try again later."}</p>
-        <button 
-          onClick={fetchOrders} 
-          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  // Loading orders
   if (isLoading) {
-    return <div className="text-center py-8">Loading orders...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-pulse text-gray-500">
+          Loading orders...
+        </div>
+      </div>
+    );
   }
 
   return (
-    <ErrorBoundary>
-      <div className="container mx-auto px-4 sm:px-8">
-        <section className="py-8">
-          <h1 className="text-4xl font-semibold mb-6">Your Orders</h1>
-          
-          {orders.length === 0 ? (
-            <div className="text-center py-8 bg-gray-100 rounded-lg">
-              <p className="text-xl text-gray-600">No orders found.</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {orders.map((order) => (
-                <div 
-                  key={order._id} 
-                  className="border-2 border-gray-200 p-6 rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold text-gray-800">
-                      Order ID: {order._id}
-                    </h2>
-                    <span 
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        order.paymentStatus === 'Paid' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}
-                    >
+    <div>
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <header className="mb-10">
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          Your Orders
+        </h1>
+        <p className="text-gray-600">
+          View and track the status of your recent purchases
+        </p>
+      </header>
+      <section className="py-8">
+
+  <div className="flex gap-6 mb-6">
+    
+    <div className="flex-1">
+      <img
+        src="public/assets/orders/orders1.jpg"
+        alt="Order Introduction"
+        className="w-80 h-80 rounded-lg"
+      />
+    </div>
+
+    
+    <div className="flex-1">
+      <img
+        src="public/assets/orders/orders2.jpg"
+        alt="Order Details"
+        className="w-80 h-80 rounded-lg"
+      />
+    </div>
+  </div>
+
+  
+</section>
+
+      
+      {orders.length === 0 ? (
+        <div className="bg-gray-100 rounded-lg p-10 text-center">
+          <img 
+            src="/api/placeholder/400/300" 
+            alt="No orders" 
+            className="mx-auto mb-6 rounded-lg shadow-md"
+          />
+          <p className="text-xl text-gray-600">
+            You haven't placed any orders yet.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {orders.map((order) => (
+            <div 
+              key={order._id} 
+              className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center space-x-3">
+                    {getOrderStatusIcon(order.paymentStatus)}
+                    <span className="font-semibold text-gray-700">
                       {order.paymentStatus || 'Unknown Status'}
                     </span>
                   </div>
+                  <span className="text-gray-500 text-sm">
+                    {new Date(order.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
 
-                  <div className="mb-4">
-                    <p className="text-gray-600">
-                      Shipping Address: {order.address?.fname} {order.address?.lname}, 
+                <div className="border-t pt-4">
+                  <h3 className="text-lg font-semibold mb-4">Order Items</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(order.orderProducts || []).map((product) => (
+                      <div 
+                        key={product.productId?._id || product._id} 
+                        className="flex items-center space-x-4 bg-gray-50 p-4 rounded-lg"
+                      >
+                        <img 
+                          src={product.productId?.image || "/api/placeholder/100/100"}
+                          alt={product.productId?.name || 'Product'}
+                          className="w-20 h-20 object-cover rounded-md"
+                        />
+                        <div className="flex-grow">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h4 className="font-medium text-gray-800">
+                                {product.productId?.name || 'Unknown Product'}
+                              </h4>
+                              <p className="text-gray-500 text-sm">
+                                Qty: {product.quantity || 1}
+                              </p>
+                            </div>
+                            <span className="font-semibold text-gray-900">
+                              ${Number(product.productId?.price || 0).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-4 border-t flex justify-between items-center">
+                  <div>
+                    <p className="text-gray-600 mb-1">Shipping Address</p>
+                    <p className="font-medium text-gray-800">
+                      {order.address?.fname} {order.address?.lname}, 
                       {order.address?.city}
                     </p>
                   </div>
-
-                  <div className="border-t pt-4">
-                    <h3 className="text-lg font-semibold mb-2">Order Items</h3>
-                    <ul className="divide-y divide-gray-200">
-                      {(order.orderProducts || []).map((product) => (
-                        <li 
-                          key={product.productId?._id || product._id} 
-                          className="py-2 flex justify-between"
-                        >
-                          <div>
-                            <span className="font-medium">
-                              {product.productId?.name || 'Unknown Product'}
-                            </span>
-                            <span className="text-gray-500 ml-2">
-                              Qty: {product.quantity || 1}
-                            </span>
-                          </div>
-                          <span className="font-semibold">
-                            ${(product.productId?.price || 0).toFixed(2)} each
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t flex justify-between items-center">
-                    <span className="text-lg font-bold">Total Price:</span>
-                    <span className="text-2xl font-bold text-green-700">
+                  <div className="text-right">
+                    <span className="text-lg font-bold block mb-1">Total</span>
+                    <span className="text-2xl font-bold text-green-600">
                       ${calculateOrderTotal(order)}
                     </span>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          )}
-        </section>
-      </div>
+          ))}
+        </div>
+      )}
+      
+    </div>
+    <Footer/>
+    </div>
+    
+  );
+  
+}
+
+
+// Wrapper component with Error Boundary
+function OrdersPageWrapper() {
+  return (
+    <ErrorBoundary 
+      FallbackComponent={ErrorFallback}
+      onReset={() => {
+        // Optional: You can add any reset logic here
+        window.location.reload();
+      }}
+    >
+      <OrdersPage />
     </ErrorBoundary>
   );
 }
 
-export default OrdersPage;
+export default OrdersPageWrapper;

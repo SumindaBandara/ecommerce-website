@@ -10,10 +10,12 @@ export const createOrder = async (data) => {
     body: JSON.stringify(data),
     
   });
-  console.log("This is the data", data);
+  console.log("This is the data", createOrder);
 
   return await res.json();
 };
+
+console.log("this issss dataaaa",createOrder);
 
 export const getOrderById = async (id) => {
   const token = await window.Clerk?.session?.getToken();
@@ -28,6 +30,7 @@ export const getOrderById = async (id) => {
 
   return await res.json();
 };
+console.log("this is userByID DAtaaaa",getOrderById);
 
 //new
 export const getOrdersByUser = async (userId) => {
@@ -41,5 +44,7 @@ export const getOrdersByUser = async (userId) => {
     },
   });
 
+
   return await res.json();
 };
+console.log("this is userByID DAtaaaa",getOrdersByUser);
