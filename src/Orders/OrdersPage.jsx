@@ -1,0 +1,232 @@
+import React, { useEffect, useState } from "react";
+import { ErrorBoundary } from "react-error-boundary";
+import { useUser } from "@clerk/clerk-react";
+import { getOrdersByUser } from "../services/api/orders";
+import { toast } from "sonner";
+import {
+  CheckCircleIcon,
+  PackageIcon,
+  ClockIcon,
+  AlertTriangleIcon,
+  RefreshCwIcon,
+} from "lucide-react";
+import Footer from "../pages/home/components/Footer";
+
+// Error Fallback Component
+function ErrorFallback({ error, resetErrorBoundary }) {
+  return (
+    <div className="error-boundary p-8 bg-red-50 text-red-800 rounded-lg max-w-md mx-auto mt-10">
+      <div className="flex items-center mb-4">
+        <AlertTriangleIcon className="w-8 h-8 mr-3 text-red-600" />
+        <h1 className="text-2xl font-bold">Error</h1>
+      </div>
+      <p className="mb-4">An unexpected error occurred. Please try again later.</p>
+      <details className="mb-4">
+        <summary>Details</summary>
+        <pre className="bg-red-100 p-4 rounded mt-2 text-sm overflow-auto">
+          {error.toString()}
+        </pre>
+      </details>
+      <div className="flex space-x-4">
+        <button
+          onClick={resetErrorBoundary}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+        >
+          <RefreshCwIcon className="mr-2 w-4 h-4" />
+          Retry
+        </button>
+        <button
+          onClick={() => window.location.reload()}
+          className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 transition"
+        >
+          Reload
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OrderCard({ order, calculateOrderTotal, getOrderStatusIcon }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+      <div className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-3">
+            {getOrderStatusIcon(order.paymentStatus)}
+            <span className="font-semibold text-gray-700">
+              {order.paymentStatus || "Unknown Status"}
+            </span>
+          </div>
+          <span className="text-gray-500 text-sm">
+            {new Date(order.createdAt).toLocaleDateString()}
+          </span>
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="text-lg font-semibold mb-4">Order Items</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(order.orderProducts || []).map((product) => (
+              <div
+                key={product.productId?._id || product._id}
+                className="flex items-center space-x-4 bg-gray-50 p-4 rounded-lg"
+              >
+                <img
+                  src={product.productId?.image || "/api/placeholder/100/100"}
+                  alt={product.productId?.name || "Product"}
+                  className="w-20 h-20 object-cover rounded-md"
+                />
+                <div className="flex-grow">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-medium text-gray-800">
+                        {product.productId?.name || "Unknown Product"}
+                      </h4>
+                      <p className="text-gray-500 text-sm">
+                        Qty: {product.quantity || 1}
+                      </p>
+                    </div>
+                    <span className="font-semibold text-gray-900">
+                      ${Number(product.productId?.price || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t flex justify-between items-center">
+          <div>
+            <p className="text-gray-600 mb-1">Shipping Address</p>
+            <p className="font-medium text-gray-800">
+              {order.address?.fname} {order.address?.lname}, {order.address?.city}
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="text-lg font-bold block mb-1">Total</span>
+            <span className="text-2xl font-bold text-green-600">
+              ${calculateOrderTotal(order)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrdersPage() {
+  const { user, isLoaded, isSignedIn } = useUser();
+  const [orders, setOrders] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchOrders = async () => {
+    if (!isLoaded || !isSignedIn || !user?.id) {
+      throw new Error("User not identified");
+    }
+
+    setIsLoading(true);
+
+    try {
+      const fetchedOrders = await getOrdersByUser(user.id);
+      const ordersArray = Array.isArray(fetchedOrders)
+        ? fetchedOrders
+        : fetchedOrders.orders || [];
+      setOrders(ordersArray);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to load orders"
+      );
+      throw error; // Rethrow for error boundary
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      fetchOrders();
+    }
+  }, [isLoaded, isSignedIn, user]);
+
+  const calculateOrderTotal = (order) =>
+    (order.orderProducts || []).reduce((total, product) => {
+      const price = Number(product.productId?.price || product.price || 0);
+      const quantity = Number(product.quantity || 1);
+      return total + price * quantity;
+    }, 0).toFixed(2);
+
+  const getOrderStatusIcon = (status) => {
+    switch (status) {
+      case "Paid":
+        return <CheckCircleIcon className="text-green-500 w-6 h-6" />;
+      case "Pending":
+        return <ClockIcon className="text-yellow-500 w-6 h-6" />;
+      case "Processing":
+        return <PackageIcon className="text-blue-500 w-6 h-6" />;
+      default:
+        return null;
+    }
+  };
+
+  if (!isLoaded) {
+    return <p className="text-center mt-20">Loading user information...</p>;
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="text-center mt-20">
+        <p>Please sign in to view your orders.</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return <p className="text-center mt-20">Loading orders...</p>;
+  }
+
+  return (
+    <div>
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <header className="mb-10">
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">Your Orders</h1>
+          <p className="text-gray-600">
+            View and track the status of your recent purchases
+          </p>
+        </header>
+        {orders.length === 0 ? (
+          <div className="bg-gray-100 rounded-lg p-10 text-center">
+            <p className="text-xl text-gray-600">No orders found.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {orders.map((order) => (
+              <OrderCard
+                key={order._id}
+                order={order}
+                calculateOrderTotal={calculateOrderTotal}
+                getOrderStatusIcon={getOrderStatusIcon}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
+// Wrapper component with Error Boundary
+function OrdersPageWrapper() {
+  return (
+    <ErrorBoundary
+      FallbackComponent={ErrorFallback}
+      onReset={() => window.location.reload()}
+    >
+      <OrdersPage />
+    </ErrorBoundary>
+  );
+}
+
+export default OrdersPageWrapper;
